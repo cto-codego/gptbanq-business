@@ -26,9 +26,9 @@ class AppConfig {
   static const String secretKey =
       "thebank20201234567891011121crypto07a932dd17adc59b49561f";
   static const String whiteLabel =
-      "9b7a9e52-5b13eb6e-107a5683-1a4c73a8-d0238ee7-bb0a6746-33a08089-a6b0f363";
+      "6a392898-19a62a49-b69ee746-cfbf5d3d-87ddeec6-ae073358-0161a9e1-0b473afc";
   static String userAgent =
-      "codegopay-3efd5be3-74307f4f-ad9f67e3-14fe650c-220012b6-6aabb9b3-5dbbaeed-b0706710";
+      "ptbanq-b69ee746-cfbf5d3d-87ddeec6-ae073358-0161a9e1-0b473afc";
 
   static const String endPointtrxdetails = 'iban_trxdetail';
   static const String endPointdawnloainvoice = 'iban_downloadinvoice';

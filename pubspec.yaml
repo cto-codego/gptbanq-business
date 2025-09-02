@@ -72,7 +72,7 @@ dependencies:
   local_auth: ^2.1.7
   dart_ipify: ^1.1.1
   package_info_plus: 8.3.1
-  location: 8.0.0
+  location: 8.0.1
   geolocator: 14.0.2
   battery_plus: 6.2.3
   network_info_plus: ^6.1.4
