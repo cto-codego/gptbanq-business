@@ -1,0 +1,42 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    // ✅ Force JDK 17 for all Java and Kotlin tasks in all modules
+    tasks.withType(JavaCompile).configureEach {
+        javaCompiler = javaToolchains.compilerFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = "21"
+        }
+    }
+}
+
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+
+
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

@@ -1,0 +1,95 @@
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+    id "org.jetbrains.kotlin.android"
+}
+
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+android {
+    namespace "com.gptbanq.business"
+    compileSdkVersion 36
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+
+    kotlinOptions {
+        jvmTarget = '21'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    aaptOptions {
+        noCompress "Regula/faceSdkResource.dat"
+    }
+
+    lintOptions {
+        warning 'deprecation'
+    }
+
+    defaultConfig {
+        applicationId "com.gptbanq.business"
+        minSdk = 23
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+    buildTypes {
+        release {
+//            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    implementation 'com.google.firebase:firebase-messaging:20.1.0'
+    implementation 'com.android.support:appcompat-v7:22.2.0'
+    implementation platform("com.google.firebase:firebase-bom:32.7.3")
+    implementation "com.google.firebase:firebase-analytics"
+}
