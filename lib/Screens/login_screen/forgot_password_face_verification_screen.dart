@@ -6,7 +6,6 @@ import 'package:gptbanqbusiness/widgets/custom_image_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 import 'package:flutter_face_api/flutter_face_api.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
@@ -26,11 +25,12 @@ class ForgotPasswordFaceVerificationScreen extends StatefulWidget {
   final String userId;
   final String message;
 
-  const ForgotPasswordFaceVerificationScreen(
-      {super.key,
-      required this.profileImage,
-      required this.userId,
-      required this.message});
+  const ForgotPasswordFaceVerificationScreen({
+    super.key,
+    required this.profileImage,
+    required this.userId,
+    required this.message,
+  });
 
   @override
   State<ForgotPasswordFaceVerificationScreen> createState() =>
@@ -40,49 +40,33 @@ class ForgotPasswordFaceVerificationScreen extends StatefulWidget {
 class _ForgotPasswordFaceVerificationScreenState
     extends State<ForgotPasswordFaceVerificationScreen> {
   final SignupBloc _signupBloc = SignupBloc();
-  var faceSdk = FaceSDK.instance;
+  final faceSdk = FaceSDK.instance;
 
-  MatchFacesImage? image1;
-  MatchFacesImage? image2;
-
+  MatchFacesImage? image1; // profile
+  MatchFacesImage? image2; // live selfie
   String _similarity = "nil";
-  String _liveness = "nil";
-
-  var status = "nil";
-  var similarityStatus = "nil";
-  var livenessStatus = "nil";
-
-  var uiImage1 = Image.asset('images/portrait.png'); // Placeholder image
-  var uiImage2 = Image.asset('images/portrait.png');
-
-  Uint8List? bytes;
-  String userimage = '';
 
   @override
   void initState() {
     super.initState();
-    init();
-    loadImageFromUrl(widget.profileImage, 1);
+    _init();
   }
 
-  void init() async {
-    if (!await initialize()) return;
-    status = "Ready";
+  Future<void> _init() async {
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    if (!await _initializeSdk()) return;
+    await _loadImageFromUrl(widget.profileImage, 1);
   }
 
-  Future<bool> initialize() async {
-    status = "Initializing...";
-    var license = await loadAssetIfExists("assets/regula.license");
-    InitConfig? config = license != null ? InitConfig(license) : null;
-    var (success, error) = await faceSdk.initialize(config: config);
-    if (!success) {
-      status = error!.message;
-      print("${error.code}: ${error.message}");
-    }
-    return success;
+  Future<bool> _initializeSdk() async {
+    final lic = await _loadAssetIfExists("assets/regula.license");
+    final config = lic != null ? InitConfig(lic) : null;
+    final (ok, err) = await faceSdk.initialize(config: config);
+    if (!ok) debugPrint("${err?.code}: ${err?.message}");
+    return ok;
   }
 
-  Future<ByteData?> loadAssetIfExists(String path) async {
+  Future<ByteData?> _loadAssetIfExists(String path) async {
     try {
       return await rootBundle.load(path);
     } catch (_) {
@@ -90,140 +74,87 @@ class _ForgotPasswordFaceVerificationScreenState
     }
   }
 
-  Future<void> loadImageFromUrl(String url, int number) async {
+  Future<void> _loadImageFromUrl(String url, int number) async {
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        setImage(response.bodyBytes, ImageType.GHOST_PORTRAIT, number);
-      } else {
-        throw Exception('Failed to load image');
-      }
+      final r = await http.get(Uri.parse(url));
+      if (r.statusCode == 200)
+        _setImage(r.bodyBytes, ImageType.PRINTED, number);
     } catch (e) {
-      print('Error loading image from URL: $e');
+      debugPrint('Error loading image from URL: $e');
     }
   }
 
-  setImage(Uint8List bytes, ImageType type, int number) {
-    similarityStatus = "nil";
-    var mfImage = MatchFacesImage(bytes, type);
-    if (number == 1) {
-      image1 = mfImage;
-      uiImage1 = Image.memory(bytes);
-      livenessStatus = "nil";
-    }
-    if (number == 2) {
-      image2 = mfImage;
-      uiImage2 = Image.memory(bytes);
+  void _setImage(Uint8List bytes, ImageType type, int number) {
+    setState(() {
+      final mf = MatchFacesImage(bytes, type);
+      if (number == 1) {
+        image1 = mf;
+      } else {
+        image2 = mf;
+      }
+    });
+  }
+
+  Future<void> _startLiveness() async {
+    try {
+      setState(() => _similarity = "Processing...");
+      final result = await faceSdk.startLiveness(
+        config: LivenessConfig(skipStep: [LivenessSkipStep.ONBOARDING_STEP]),
+        notificationCompletion: (n) => debugPrint(n.status.toString()),
+      );
+      if (result.image == null) {
+        if (mounted) setState(() => _similarity = "nil");
+        return;
+      }
+      _setImage(result.image!, ImageType.LIVE, 2);
+      await _matchFaces();
+    } catch (e) {
+      if (mounted) setState(() => _similarity = "nil");
+      debugPrint("Liveness error: $e");
     }
   }
 
-  startLiveness() async {
-    var result = await faceSdk.startLiveness(
-      config: LivenessConfig(skipStep: [LivenessSkipStep.ONBOARDING_STEP]),
-      notificationCompletion: (notification) {
-        print(notification.status);
-      },
-    );
-    if (result.image == null) return;
-    setImage(result.image!, ImageType.LIVE, 2);
-    livenessStatus = result.liveness.name.toLowerCase();
-
-    String userImage = base64Encode(result.image!);
-    print(userImage);
-
-    if (image2 != null) {
-      // Ensure that the second image is set before calling matchFaces
-      matchFaces();
-    } else {
-      status = "Please set the second image before matching!";
-    }
-  }
-
-  // void matchFaces() {
-  //   if (image1.bitmap == null ||
-  //       image1.bitmap == "" ||
-  //       image2.bitmap == null ||
-  //       image2.bitmap == "") {
-  //     //status == 0
-  //     AwesomeDialog(
-  //       context: context,
-  //       dismissOnTouchOutside: true,
-  //       dialogType: DialogType.error,
-  //       animType: AnimType.rightSlide,
-  //       desc: "Biometric not match, try again",
-  //       btnCancelText: 'ok',
-  //       buttonsTextStyle: const TextStyle(
-  //           fontSize: 14,
-  //           fontFamily: 'pop',
-  //           fontWeight: FontWeight.w600,
-  //           color: Colors.white),
-  //       btnCancelOnPress: () {},
-  //     ).show();
-  //   } else {
-  //     setState(() => _similarity = "Processing...");
-  //     var request = MatchFacesRequest();
-  //     request.images = [image1, image2];
-  //     FaceSDK.matchFaces(json.encode(request)).then((value) {
-  //       var response = MatchFacesResponse.fromJson(json.decode(value));
-  //       FaceSDK.matchFacesSimilarityThresholdSplit(
-  //               json.encode(response!.results), 0.75)
-  //           .then((str) {
-  //         var split =
-  //             MatchFacesSimilarityThresholdSplit.fromJson(json.decode(str));
-  //         setState(() => _similarity = split!.matchedFaces.isNotEmpty
-  //             ? ((split.matchedFaces[0]!.similarity! * 100).toStringAsFixed(2))
-  //             : "error");
-  //         if (_similarity == "error" || _similarity == "nil") {
-  //           //status == 0
-  //           _signupBloc.add(ForgotPasswordBiometricEvent(
-  //               userId: widget.userId, status: "0"));
-  //         } else {
-  //           //status == 1
-  //
-  //           _signupBloc.add(ForgotPasswordBiometricEvent(
-  //               userId: widget.userId, status: "1"));
-  //         }
-  //       });
-  //     });
-  //   }
-  // }
-
-  matchFaces() async {
+  Future<void> _matchFaces() async {
     if (image1 == null || image2 == null) {
-      UserDataManager().similaritySave(
-          _similarity == "nil" || _similarity == "Error"
-              ? "00.00"
-              : _similarity);
+      UserDataManager().similaritySave("00.00");
       _signupBloc.add(
           ForgotPasswordBiometricEvent(userId: widget.userId, status: "0"));
-    } else {
-      status = "Processing...";
-      var request = MatchFacesRequest([image1!, image2!]);
-      var response = await faceSdk.matchFaces(request);
-      var split = await faceSdk.splitComparedFaces(response.results, 0.75);
-      var match = split.matchedFaces;
-      similarityStatus = "failed";
-
-      if (match.isNotEmpty) {
-        similarityStatus = "${(match[0].similarity * 100).toStringAsFixed(2)}%";
-
-        _signupBloc.add(
-            ForgotPasswordBiometricEvent(userId: widget.userId, status: "1"));
-      }
-      status = "Ready";
+      setState(() => _similarity = "nil");
+      return;
     }
+    final req = MatchFacesRequest([image1!, image2!]);
+    final resp = await faceSdk.matchFaces(req);
+    final split = await faceSdk.splitComparedFaces(resp.results, 0.75);
+    final matches = split.matchedFaces;
+    final simPct = matches.isNotEmpty ? matches.first.similarity * 100 : 0.0;
+
+    if (!mounted) return;
+    if (simPct >= 90.0) {
+      UserDataManager().similaritySave(simPct.toStringAsFixed(2));
+      _signupBloc.add(
+          ForgotPasswordBiometricEvent(userId: widget.userId, status: "1"));
+    } else {
+      UserDataManager().similaritySave("00.00");
+      _signupBloc.add(
+          ForgotPasswordBiometricEvent(userId: widget.userId, status: "0"));
+    }
+    setState(() => _similarity = "nil");
+  }
+
+  @override
+  void dispose() {
+    _signupBloc.close();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener(
+    return BlocListener<SignupBloc, SignupState>(
       bloc: _signupBloc,
-      listener: (context, SignupState state) {
+      listener: (context, state) {
         if (state.statusModel?.status == 0) {
           CustomToast.showError(context, "Sorry!", state.statusModel!.message!);
-        }
-
-        if (state.statusModel?.status == 1) {
+        } else if (state.statusModel?.status == 1) {
           Navigator.push(
             context,
             PageTransition(
@@ -242,18 +173,16 @@ class _ForgotPasswordFaceVerificationScreenState
       child: Scaffold(
         backgroundColor: CustomColor.scaffoldBg,
         body: SafeArea(
-          child: BlocBuilder(
+          child: BlocBuilder<SignupBloc, SignupState>(
             bloc: _signupBloc,
-            builder: (context, SignupState state) {
+            builder: (context, state) {
               return ProgressHUD(
                 inAsyncCall: state.isloading,
                 child: Container(
-                  width: double.maxFinite,
-                  height: double.maxFinite,
+                  width: double.infinity,
+                  height: double.infinity,
                   padding: const EdgeInsets.only(left: 16, right: 16, top: 40),
                   child: Column(
-                    // mainAxisAlignment: MainAxisAlignment.start,
-                    // crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -268,10 +197,7 @@ class _ForgotPasswordFaceVerificationScreenState
                       Expanded(
                         child: Column(
                           children: [
-                            MainLogoWidget(
-                              height: 100,
-                              width: 150,
-                            ),
+                            const MainLogoWidget(height: 100, width: 150),
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 40),
                               child: CustomImageWidget(
@@ -279,24 +205,18 @@ class _ForgotPasswordFaceVerificationScreenState
                                 imageType: 'svg',
                               ),
                             ),
-                            Text(
-                              "Let's Verify facial biometric",
-                              style: CustomStyle.loginTitleStyle,
-                            ),
+                            Text("Let's Verify facial biometric",
+                                style: CustomStyle.loginTitleStyle),
                             const SizedBox(height: 20),
-                            Text(
-                              widget.message,
-                              style: CustomStyle.loginSubTitleStyle,
-                            ),
+                            Text(widget.message,
+                                style: CustomStyle.loginSubTitleStyle),
                             const SizedBox(height: 10),
                           ],
                         ),
                       ),
                       if (_similarity == "nil")
                         PrimaryButtonWidget(
-                          onPressed: startLiveness,
-                          buttonText: 'Continue',
-                        ),
+                            onPressed: _startLiveness, buttonText: 'Continue'),
                       Padding(
                         padding: const EdgeInsets.all(8.0),
                         child: Text(
@@ -304,7 +224,7 @@ class _ForgotPasswordFaceVerificationScreenState
                           textAlign: TextAlign.center,
                           style: GoogleFonts.inter(
                             fontSize: 18,
-                            color: _similarity == "Processing..."
+                            color: _similarity == "Processing?"
                                 ? CustomColor.black
                                 : Colors.transparent,
                           ),

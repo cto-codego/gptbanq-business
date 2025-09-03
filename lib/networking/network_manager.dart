@@ -28,7 +28,7 @@ class AppConfig {
   static const String whiteLabel =
       "6a392898-19a62a49-b69ee746-cfbf5d3d-87ddeec6-ae073358-0161a9e1-0b473afc";
   static String userAgent =
-      "ptbanq-b69ee746-cfbf5d3d-87ddeec6-ae073358-0161a9e1-0b473afc";
+      "gptbanq-b69ee746-cfbf5d3d-87ddeec6-ae073358-0161a9e1-0b473afc";
 
   static const String endPointtrxdetails = 'iban_trxdetail';
   static const String endPointdawnloainvoice = 'iban_downloadinvoice';

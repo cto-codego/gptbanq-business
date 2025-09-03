@@ -770,26 +770,24 @@ class CustomActionButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(
-              child: Row(
-                children: [
-                  CustomImageWidget(
-                    imagePath: icon,
-                    imageType: 'svg',
-                    height: 18,
-                  ),
-                  const SizedBox(
-                    width: 15,
-                  ),
-                  Text(
-                    label,
-                    style: GoogleFonts.inter(
-                        color: CustomColor.black,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
+            Row(
+              children: [
+                CustomImageWidget(
+                  imagePath: icon,
+                  imageType: 'svg',
+                  height: 18,
+                ),
+                const SizedBox(
+                  width: 15,
+                ),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                      color: CustomColor.black,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500),
+                ),
+              ],
             ),
             CustomImageWidget(
               imagePath: StaticAssets.arrowRight,

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_face_api/flutter_face_api.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../../../cutom_weidget/cutom_progress_bar.dart';
 import '../../../../../utils/assets.dart';
@@ -16,8 +17,6 @@ import '../../../../../widgets/buttons/default_back_button_widget.dart';
 import '../../../../../widgets/buttons/primary_button_widget.dart';
 import '../../../../../widgets/custom_image_widget.dart';
 import '../../../../../widgets/toast/toast_util.dart';
-import 'package:http/http.dart' as http;
-
 import '../../../constant_string/User.dart';
 
 class UpdateFaceProofScreen extends StatefulWidget {
@@ -29,48 +28,68 @@ class UpdateFaceProofScreen extends StatefulWidget {
 
 class _UpdateFaceProofScreenState extends State<UpdateFaceProofScreen> {
   final UpdateDocBloc _updateDocBloc = UpdateDocBloc();
+  final faceSdk = FaceSDK.instance;
 
-  var faceSdk = FaceSDK.instance;
+  String status = "nil";
+  String livenessStatus = "nil";
 
-  var status = "nil";
-  var similarityStatus = "nil";
-  var livenessStatus = "nil";
-
-  var uiImage1 = Image.asset('images/portrait.png'); // Placeholder image
-  var uiImage2 = Image.asset('images/portrait.png');
-
+  // Kept for pipeline even if not displayed
   MatchFacesImage? image1;
   MatchFacesImage? image2;
 
-  String _similarity = "00.00";
+  @override
+  void initState() {
+    super.initState();
+    _updateDocBloc.add(KycGetUserImageEvent(uniqueId: User.updateUniqueId));
+    _init();
+  }
 
-  // String _liveness = "nil";
+  Future<void> _init() async {
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    if (!await _initializeSdk()) return;
+    if (!mounted) return;
+    setState(() => status = "Ready");
+  }
 
-  Uint8List? bytes;
-  String userimage = '';
-  String? kycid;
-
-  setImage(Uint8List bytes, ImageType type, int number) {
-    similarityStatus = "nil";
-    var mfImage = MatchFacesImage(bytes, type);
-    if (number == 1) {
-      image1 = mfImage;
-      uiImage1 = Image.memory(bytes);
-      livenessStatus = "nil";
+  Future<bool> _initializeSdk() async {
+    setState(() => status = "Initializing...");
+    final lic = await _loadAssetIfExists("assets/regula.license");
+    final config = lic != null ? InitConfig(lic) : null;
+    final (ok, err) = await faceSdk.initialize(config: config);
+    if (!ok) {
+      if (!mounted) return false;
+      setState(() => status = err?.message ?? "Init failed");
+      debugPrint("${err?.code}: ${err?.message}");
     }
-    if (number == 2) {
-      image2 = mfImage;
-      uiImage2 = Image.memory(bytes);
+    return ok;
+  }
+
+  Future<ByteData?> _loadAssetIfExists(String path) async {
+    try {
+      return await rootBundle.load(path);
+    } catch (_) {
+      return null;
     }
+  }
+
+  void setImage(Uint8List bytes, ImageType type, int number) {
+    setState(() {
+      final mf = MatchFacesImage(bytes, type);
+      if (number == 1) {
+        image1 = mf;
+        livenessStatus = "nil";
+      } else {
+        image2 = mf;
+      }
+    });
   }
 
   Future<void> loadImageFromUrl(String url, int number) async {
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        setImage(response.bodyBytes, ImageType.GHOST_PORTRAIT, number);
-      } else {
-        throw Exception('Failed to load image');
+      final r = await http.get(Uri.parse(url));
+      if (r.statusCode == 200) {
+        // Remote profile photo → PRINTED
+        setImage(r.bodyBytes, ImageType.PRINTED, number);
       }
     } catch (e) {
       debugPrint('Error loading image from URL: $e');
@@ -79,41 +98,48 @@ class _UpdateFaceProofScreenState extends State<UpdateFaceProofScreen> {
 
   Future<void> startLiveness() async {
     try {
-      var result = await faceSdk.startLiveness(
+      setState(() => status = "Processing...");
+      final result = await faceSdk.startLiveness(
         config: LivenessConfig(skipStep: [LivenessSkipStep.ONBOARDING_STEP]),
-        notificationCompletion: (notification) {
-          debugPrint(notification.status.toString());
-        },
+        notificationCompletion: (n) => debugPrint(n.status.toString()),
       );
+      if (result.image == null) {
+        if (mounted) setState(() => status = "Ready");
+        return;
+      }
 
-      if (result.image == null) return;
-
+      // Save as "live" second image
       setImage(result.image!, ImageType.LIVE, 2);
-      livenessStatus = result.liveness.name.toLowerCase();
+      if (!mounted) return;
 
-      String userImage = base64Encode(result.image!);
-      debugPrint(userImage);
-      UserDataManager().similarityImageSave(userImage);
+      setState(() => livenessStatus = result.liveness.name.toLowerCase());
+
+      final userImageB64 = base64Encode(result.image!);
+      UserDataManager().similarityImageSave(userImageB64);
+      // Keep if your backend expects a placeholder similarity:
       UserDataManager().similaritySave("90.00");
 
-      if (userImage.isNotEmpty) {
-        // Dispatch an event to the bloc
-        _updateDocBloc.add(KycFaceVerifyEvent(
-          image: userImage,
-          uniqueId: User.updateUniqueId,
-          docTypeStatus: User.updateDocTypeStatus,
-        ));
+      if (userImageB64.isNotEmpty) {
+        _updateDocBloc.add(
+          KycFaceVerifyEvent(
+            image: userImageB64,
+            uniqueId: User.updateUniqueId,
+            docTypeStatus: User.updateDocTypeStatus,
+          ),
+        );
       } else {
-        status = "Please set the second image before matching!";
+        setState(() => status = "Please set the second image before matching!");
         if (mounted) _showToastError();
       }
     } catch (e) {
-      if (mounted) _showToastError();
+      if (mounted) {
+        _showToastError();
+        setState(() => status = "Ready");
+      }
       debugPrint("Error during liveness check: $e");
     }
   }
 
-// Helper function for displaying the toast
   void _showToastError() {
     CustomToast.showError(
       context,
@@ -122,85 +148,27 @@ class _UpdateFaceProofScreenState extends State<UpdateFaceProofScreen> {
     );
   }
 
-  matchFaces() async {
-    status = "Processing...";
-    if (image1 == null || image2 == null) {
-      UserDataManager().similaritySave("00.00");
-      // _kycFaceVerifyBloc.add(KycFaceVerifyEvent());
-    } else {
-      // setState(() => _similarity = "Processing...");
-      var request = MatchFacesRequest([image1!, image2!]);
-      var response = await faceSdk.matchFaces(request);
-      var split = await faceSdk.splitComparedFaces(response.results, 0.75);
-      var match = split.matchedFaces;
-      similarityStatus = "failed";
-
-      if (match.isNotEmpty) {
-        similarityStatus = "${(match[0].similarity * 100).toStringAsFixed(2)}%";
-        _similarity = (match[0].similarity * 100).toStringAsFixed(2);
-
-        UserDataManager().similaritySave(_similarity);
-        // _kycFaceVerifyBloc.add(KycFaceVerifyEvent());
-      } else {
-        UserDataManager().similaritySave("00.00");
-        // _kycFaceVerifyBloc.add(KycFaceVerifyEvent());
-      }
-      status = "Ready";
-    }
-  }
-
-  // If 'assets/regula.license' exists, init using license(enables offline match)
-  // otherwise init without license.
-  Future<bool> initialize() async {
-    status = "Initializing...";
-    var license = await loadAssetIfExists("assets/regula.license");
-    InitConfig? config = license != null ? InitConfig(license) : null;
-    var (success, error) = await faceSdk.initialize(config: config);
-    if (!success) {
-      status = error!.message;
-      print("${error.code}: ${error.message}");
-    }
-    return success;
-  }
-
-  Future<ByteData?> loadAssetIfExists(String path) async {
-    try {
-      return await rootBundle.load(path);
-    } catch (_) {
-      return null;
-    }
-  }
-
   @override
-  void initState() {
-    super.initState();
-    _updateDocBloc.add(KycGetUserImageEvent(uniqueId: User.updateUniqueId));
-
-    init();
-    // initPlatformState();
-  }
-
-  void init() async {
-    if (!await initialize()) return;
-    status = "Ready";
+  void dispose() {
+    _updateDocBloc.close();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener(
+    return BlocListener<UpdateDocBloc, UpdateDocState>(
       bloc: _updateDocBloc,
-      listener: (context, UpdateDocState state) {
+      listener: (context, state) {
         if (state.kycGetUserImageModel?.status == 0) {
           CustomToast.showError(
               context, "Sorry!", state.kycGetUserImageModel!.message!);
         }
         if (state.kycGetUserImageModel?.status == 1) {
-          String userImage =
-              state.kycGetUserImageModel!.profileimage.toString();
-          loadImageFromUrl(userImage, 1);
-          UserDataManager().similarityUserImageSave(userImage);
+          final userImageUrl =
+          state.kycGetUserImageModel!.profileimage.toString();
+          loadImageFromUrl(userImageUrl, 1);
+          UserDataManager().similarityUserImageSave(userImageUrl);
         }
-
         if (state.kycFaceVerifyModel?.status == 1) {
           Navigator.pushNamedAndRemoveUntil(
               context, 'updateDocScreen', (route) => false);
@@ -212,18 +180,16 @@ class _UpdateFaceProofScreenState extends State<UpdateFaceProofScreen> {
       child: Scaffold(
         backgroundColor: CustomColor.scaffoldBg,
         body: SafeArea(
-          child: BlocBuilder(
+          child: BlocBuilder<UpdateDocBloc, UpdateDocState>(
             bloc: _updateDocBloc,
-            builder: (context, UpdateDocState state) {
+            builder: (context, state) {
               return ProgressHUD(
                 inAsyncCall: state.isloading,
                 child: Container(
-                  width: double.maxFinite,
-                  height: double.maxFinite,
+                  width: double.infinity,
+                  height: double.infinity,
                   padding: const EdgeInsets.only(left: 16, right: 16, top: 40),
                   child: Column(
-                    // mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    // crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: ListView(
@@ -236,15 +202,11 @@ class _UpdateFaceProofScreenState extends State<UpdateFaceProofScreen> {
                                   Navigator.pushNamedAndRemoveUntil(context,
                                       'kycStartScreen', (route) => false);
                                 }),
-                                Container()
+                                const SizedBox.shrink(),
                               ],
                             ),
-                            const SizedBox(
-                              height: 40,
-                            ),
-                            _uploadProofIdentity(context),
-
-                            // :  createButton("Submit", () => matchFaces()),
+                            const SizedBox(height: 40),
+                            _uploadProofIdentity(),
                           ],
                         ),
                       ),
@@ -263,45 +225,50 @@ class _UpdateFaceProofScreenState extends State<UpdateFaceProofScreen> {
     );
   }
 
-  _uploadProofIdentity(BuildContext context) {
+  Widget _uploadProofIdentity() {
     return Center(
-        child: Container(
-            padding: const EdgeInsets.all(20.0),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10.0),
+      child: Container(
+        padding: const EdgeInsets.all(20.0),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(10.0)),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CustomImageWidget(
+              imagePath: StaticAssets.biometricImage,
+              imageType: "svg",
+              height: 250,
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                CustomImageWidget(
-                  imagePath: StaticAssets.biometricImage,
-                  imageType: "svg",
-                  height: 250,
-                ),
-                Text(
-                  Strings.biometricTitle,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w600,
-                      color: CustomColor.black),
-                ),
-                Text(
-                  Strings.biometricSubTitle,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      color: CustomColor.subtitleTextColor),
-                ),
-                Text(status,
-                    style: GoogleFonts.inter(
-                        fontSize: 18,
-                        color: status == "Processing..."
-                            ? Colors.black
-                            : Colors.transparent)),
-              ],
-            )));
+            Text(
+              Strings.biometricTitle,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 26,
+                fontWeight: FontWeight.w600,
+                color: CustomColor.black,
+              ),
+            ),
+            Text(
+              Strings.biometricSubTitle,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: CustomColor.subtitleTextColor,
+              ),
+            ),
+            Text(
+              status,
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                color: status == "Processing..."
+                    ? Colors.black
+                    : Colors.transparent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
